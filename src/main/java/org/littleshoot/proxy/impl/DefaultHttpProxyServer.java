@@ -1,7 +1,12 @@
 package org.littleshoot.proxy.impl;
 
 import io.netty.bootstrap.ServerBootstrap;
-import io.netty.channel.*;
+import io.netty.channel.Channel;
+import io.netty.channel.ChannelFuture;
+import io.netty.channel.ChannelFutureListener;
+import io.netty.channel.ChannelInitializer;
+import io.netty.channel.ChannelOption;
+import io.netty.channel.EventLoopGroup;
 import io.netty.channel.group.ChannelGroup;
 import io.netty.channel.group.ChannelGroupFuture;
 import io.netty.channel.group.DefaultChannelGroup;
@@ -9,21 +14,38 @@ import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.channel.udt.nio.NioUdtProvider;
 import io.netty.handler.traffic.GlobalTrafficShapingHandler;
 import io.netty.util.concurrent.GlobalEventExecutor;
-import org.littleshoot.proxy.*;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import javax.net.ssl.SSLEngine;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.lang.reflect.Constructor;
 import java.net.InetSocketAddress;
+import java.util.Arrays;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.Properties;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import javax.net.ssl.SSLEngine;
+import lombok.Getter;
+import org.littleshoot.proxy.ActivityTracker;
+import org.littleshoot.proxy.ChainedProxyManager;
+import org.littleshoot.proxy.DefaultHostResolver;
+import org.littleshoot.proxy.DnsSecServerResolver;
+import org.littleshoot.proxy.HostResolver;
+import org.littleshoot.proxy.HttpFilters;
+import org.littleshoot.proxy.HttpFiltersSource;
+import org.littleshoot.proxy.HttpFiltersSourceAdapter;
+import org.littleshoot.proxy.HttpProxyServer;
+import org.littleshoot.proxy.HttpProxyServerBootstrap;
+import org.littleshoot.proxy.MitmManager;
+import org.littleshoot.proxy.ProxyAuthenticator;
+import org.littleshoot.proxy.SslEngineSource;
+import org.littleshoot.proxy.TransportProtocol;
+import org.littleshoot.proxy.UnknownTransportProtocolException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * <p>
@@ -45,6 +67,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * </pre>
  *
  */
+@Getter
 public class DefaultHttpProxyServer implements HttpProxyServer {
     private static final Logger LOG = LoggerFactory.getLogger(DefaultHttpProxyServer.class);
 
@@ -204,7 +227,7 @@ public class DefaultHttpProxyServer implements HttpProxyServer {
      * @param acceptProxyProtocol when true, the proxy will accept a proxy protocol header from client
      * @param sendProxyProtocol when true, the proxy will send a proxy protocol header to the server
      */
-    private DefaultHttpProxyServer(ServerGroup serverGroup,
+    public DefaultHttpProxyServer(ServerGroup serverGroup,
             TransportProtocol transportProtocol,
             InetSocketAddress requestedAddress,
             SslEngineSource sslEngineSource,
@@ -496,12 +519,7 @@ public class DefaultHttpProxyServer implements HttpProxyServer {
 
         ChannelInitializer<Channel> initializer = new ChannelInitializer<Channel>() {
             protected void initChannel(Channel ch) {
-                new ClientToProxyConnection(
-                        DefaultHttpProxyServer.this,
-                        sslEngineSource,
-                        authenticateSslClients,
-                        ch.pipeline(),
-                        globalTrafficShapingHandler);
+                newClientToProxyConnection(ch);
             }
         };
         switch (transportProtocol) {
@@ -538,7 +556,16 @@ public class DefaultHttpProxyServer implements HttpProxyServer {
         Runtime.getRuntime().addShutdownHook(jvmShutdownHook);
     }
 
-    protected ChainedProxyManager getChainProxyManager() {
+    protected ClientToProxyConnection newClientToProxyConnection(Channel ch) {
+        return new ClientToProxyConnection(
+            DefaultHttpProxyServer.this,
+            sslEngineSource,
+            authenticateSslClients,
+            ch.pipeline(),
+            globalTrafficShapingHandler);
+    }
+
+    public ChainedProxyManager getChainProxyManager() {
         return chainProxyManager;
     }
 
@@ -603,6 +630,7 @@ public class DefaultHttpProxyServer implements HttpProxyServer {
         private boolean allowRequestToOriginServer = false;
         private boolean acceptProxyProtocol = false;
         private boolean sendProxyProtocol = false;
+        private Class<? extends HttpProxyServer> subclass;
 
         private DefaultHttpProxyServerBootstrap() {
         }
@@ -883,6 +911,15 @@ public class DefaultHttpProxyServer implements HttpProxyServer {
             return this;
         }
 
+        public <T extends HttpProxyServer> HttpProxyServerBootstrap withSubclass(Class<T> clazz) {
+            this.subclass = clazz;
+            return this;
+        }
+
+        public Class<? extends HttpProxyServer> getSubclass() {
+            return this.subclass != null ? this.subclass : DefaultHttpProxyServer.class;
+        }
+
         private DefaultHttpProxyServer build() {
             final ServerGroup serverGroup;
 
@@ -892,16 +929,23 @@ public class DefaultHttpProxyServer implements HttpProxyServer {
             else {
                 serverGroup = new ServerGroup(name, clientToProxyAcceptorThreads, clientToProxyWorkerThreads, proxyToServerWorkerThreads);
             }
-
-            return new DefaultHttpProxyServer(serverGroup,
-                    transportProtocol, determineListenAddress(),
-                    sslEngineSource, authenticateSslClients,
-                    proxyAuthenticator, chainProxyManager, mitmManager,
-                    filtersSource, transparent,
-                    idleConnectionTimeout, activityTrackers, connectTimeout,
-                    serverResolver, readThrottleBytesPerSecond, writeThrottleBytesPerSecond,
-                    localAddress, proxyAlias, maxInitialLineLength, maxHeaderSize, maxChunkSize,
-                    allowRequestToOriginServer, acceptProxyProtocol, sendProxyProtocol);
+            Constructor<?>[] constructors = getSubclass().getConstructors();
+            Constructor<?> constructor = Arrays.stream(constructors)
+                .max(Comparator.comparing(Constructor::getParameterCount))
+                .orElseThrow(() -> new RuntimeException("No constructor was found for DefaultHttpProxyServer subclazz: " + getSubclass().getName()));
+            try {
+                return (DefaultHttpProxyServer) constructor.newInstance(serverGroup,
+                        transportProtocol, determineListenAddress(),
+                        sslEngineSource, authenticateSslClients,
+                        proxyAuthenticator, chainProxyManager, mitmManager,
+                        filtersSource, transparent,
+                        idleConnectionTimeout, activityTrackers, connectTimeout,
+                        serverResolver, readThrottleBytesPerSecond, writeThrottleBytesPerSecond,
+                        localAddress, proxyAlias, maxInitialLineLength, maxHeaderSize, maxChunkSize,
+                        allowRequestToOriginServer, acceptProxyProtocol, sendProxyProtocol);
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
         }
 
         private InetSocketAddress determineListenAddress() {

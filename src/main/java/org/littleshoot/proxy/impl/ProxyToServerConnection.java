@@ -56,6 +56,8 @@ import io.netty.resolver.AddressResolverGroup;
 import io.netty.resolver.DefaultAddressResolverGroup;
 import io.netty.util.ReferenceCounted;
 import io.netty.util.concurrent.Future;
+import lombok.Getter;
+import lombok.Setter;
 import org.littleshoot.proxy.ActivityTracker;
 import org.littleshoot.proxy.ChainedProxy;
 import org.littleshoot.proxy.ChainedProxyAdapter;
@@ -106,6 +108,7 @@ import static org.littleshoot.proxy.impl.ConnectionState.HANDSHAKING;
  * </p>
  */
 @Sharable
+@Getter
 public class ProxyToServerConnection extends ProxyConnection<HttpResponse> {
     // Pipeline handler names:
     private static final String HTTP_ENCODER_NAME = "encoder";
@@ -138,6 +141,7 @@ public class ProxyToServerConnection extends ProxyConnection<HttpResponse> {
      * Encapsulates the flow for establishing a connection, which can vary
      * depending on how things are configured.
      */
+    @Setter
     private volatile ConnectionFlow connectionFlow;
 
     /**
@@ -212,7 +216,7 @@ public class ProxyToServerConnection extends ProxyConnection<HttpResponse> {
                 globalTrafficShapingHandler);
     }
 
-    private ProxyToServerConnection(
+    public ProxyToServerConnection(
             DefaultHttpProxyServer proxyServer,
             ClientToProxyConnection clientConnection,
             String serverHostAndPort,
@@ -345,13 +349,13 @@ public class ProxyToServerConnection extends ProxyConnection<HttpResponse> {
      * Like {@link #write(Object)} and also sets the current filters to the
      * given value.
      */
-    void write(Object msg, HttpFilters filters) {
+    protected void write(Object msg, HttpFilters filters) {
         this.currentFilters = filters;
         write(msg);
     }
 
     @Override
-    void write(Object msg) {
+    public void write(Object msg) {
         LOG.debug("Requested write of {}", msg);
 
         if (msg instanceof ReferenceCounted) {
@@ -451,7 +455,7 @@ public class ProxyToServerConnection extends ProxyConnection<HttpResponse> {
     }
 
     @Override
-    protected void disconnected() {
+    public void disconnected() {
         super.disconnected();
         if (this.chainedProxy != null) {
             // Let the ChainedProxy know that we disconnected
@@ -567,7 +571,7 @@ public class ProxyToServerConnection extends ProxyConnection<HttpResponse> {
      *
      * @param initialRequest the current HTTP request being handled
      */
-    private void connectAndWrite(HttpRequest initialRequest) {
+    protected void connectAndWrite(HttpRequest initialRequest) {
         LOG.debug("Starting new connection to: {}", remoteAddress);
 
         // Remember our initial request so that we can write it after connecting
@@ -581,7 +585,7 @@ public class ProxyToServerConnection extends ProxyConnection<HttpResponse> {
      * the {@link #disableSni} value is true, this method will not pass peer information to the MitmManager when
      * handling CONNECTs.
      */
-    private void initializeConnectionFlow() {
+    protected void initializeConnectionFlow() {
         this.connectionFlow = new ConnectionFlow(clientConnection, this,
                 connectLock)
                 .then(ConnectChannel);
@@ -1034,7 +1038,7 @@ public class ProxyToServerConnection extends ProxyConnection<HttpResponse> {
      *
      * @throws UnknownHostException when unable to resolve the hostname to an IP address
      */
-    private void setupConnectionParameters() throws UnknownHostException {
+    protected void setupConnectionParameters() throws UnknownHostException {
         if (chainedProxy != null
                 && chainedProxy != ChainedProxyAdapter.FALLBACK_TO_DIRECT_CONNECTION) {
             this.transportProtocol = chainedProxy.getTransportProtocol();

@@ -17,7 +17,7 @@ import java.net.InetSocketAddress;
  * establishing a socket connection, SSL handshaking, HTTP CONNECT request
  * processing, and so on.
  */
-class ConnectionFlow {
+public class ConnectionFlow {
     private final Deque<ConnectionFlowStep> steps = new ConcurrentLinkedDeque<ConnectionFlowStep>();
 
     private final ClientToProxyConnection clientConnection;
@@ -38,7 +38,7 @@ class ConnectionFlow {
      *            synchronizing the reader and writer threads that are both
      *            involved during the establishing of a connection.
      */
-    ConnectionFlow(
+    public ConnectionFlow(
             ClientToProxyConnection clientConnection,
             ProxyToServerConnection serverConnection,
             Object connectLock) {
@@ -51,7 +51,7 @@ class ConnectionFlow {
     /**
      * Add a {@link ConnectionFlowStep} to the beginning of this flow.
      */
-    ConnectionFlow first(ConnectionFlowStep step) {
+    public ConnectionFlow first(ConnectionFlowStep step) {
         steps.addFirst(step);
         return this;
     }
@@ -59,7 +59,7 @@ class ConnectionFlow {
     /**
      * Add a {@link ConnectionFlowStep} to the end of this flow.
      */
-    ConnectionFlow then(ConnectionFlowStep step) {
+    public ConnectionFlow then(ConnectionFlowStep step) {
         steps.addLast(step);
         return this;
     }
@@ -70,7 +70,7 @@ class ConnectionFlow {
      * it on to {@link ConnectionFlowStep#read(ConnectionFlow, Object)} for the
      * current {@link ConnectionFlowStep}.
      */
-    void read(Object msg) {
+    public void read(Object msg) {
         if (this.currentStep != null) {
             this.currentStep.read(this, msg);
         }
@@ -80,7 +80,7 @@ class ConnectionFlow {
      * Starts the connection flow, notifying the {@link ClientToProxyConnection}
      * that we've started.
      */
-    void start() {
+    public void start() {
         clientConnection.serverConnectionFlowStarted(serverConnection);
         advance();
     }
@@ -91,7 +91,7 @@ class ConnectionFlow {
      * out of steps, or a step has failed.
      * </p>
      */
-    void advance() {
+    public void advance() {
         currentStep = steps.poll();
         if (currentStep == null) {
             succeed();
@@ -158,7 +158,7 @@ class ConnectionFlow {
      * Called when the flow is complete and successful. Notifies the
      * {@link ProxyToServerConnection} that we succeeded.
      */
-    void succeed() {
+    public void succeed() {
         synchronized (connectLock) {
             serverConnection.getLOG().debug(
                     "Connection flow completed successfully: {}", currentStep);
@@ -191,7 +191,7 @@ class ConnectionFlow {
      * {@link ClientToProxyConnection} that our connection failed.
      */
     @SuppressWarnings("unchecked")
-    void fail(final Throwable cause) {
+    public void fail(final Throwable cause) {
         final ConnectionState lastStateBeforeFailure = serverConnection
                 .getCurrentState();
         serverConnection.disconnect().addListener(
@@ -215,7 +215,7 @@ class ConnectionFlow {
     /**
      * Like {@link #fail(Throwable)} but with no cause.
      */
-    void fail() {
+    public void fail() {
         fail(null);
     }
 

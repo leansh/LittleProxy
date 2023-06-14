@@ -303,4 +303,6 @@ public interface HttpProxyServerBootstrap {
      * @param sendProxyProtocol when true, the proxy will send a proxy protocol header
      */
     HttpProxyServerBootstrap withSendProxyProtocol(boolean sendProxyProtocol);
+
+    <T extends HttpProxyServer> HttpProxyServerBootstrap withSubclass(Class<T> clazz);
 }

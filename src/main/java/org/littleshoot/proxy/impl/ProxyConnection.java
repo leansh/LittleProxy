@@ -10,6 +10,8 @@ import io.netty.handler.timeout.IdleStateEvent;
 import io.netty.util.ReferenceCounted;
 import io.netty.util.concurrent.Future;
 import io.netty.util.concurrent.Promise;
+import lombok.Getter;
+import lombok.Setter;
 import org.littleshoot.proxy.HttpFilters;
 
 import javax.net.ssl.SSLEngine;
@@ -60,6 +62,7 @@ import static org.littleshoot.proxy.impl.ConnectionState.*;
  *            the type of "initial" message. This will be either
  *            {@link HttpResponse} or {@link HttpRequest}.
  */
+@Getter
 abstract class ProxyConnection<I extends HttpObject> extends
         SimpleChannelInboundHandler<Object> {
     protected final ProxyConnectionLogger LOG = new ProxyConnectionLogger(this);
@@ -71,6 +74,7 @@ abstract class ProxyConnection<I extends HttpObject> extends
     protected volatile Channel channel;
 
     private volatile ConnectionState currentState;
+    @Setter
     private volatile boolean tunneling = false;
     protected volatile long lastReadTime = 0;
 
@@ -211,7 +215,7 @@ abstract class ProxyConnection<I extends HttpObject> extends
      * This method is called by users of the ProxyConnection to send stuff out
      * over the socket.
      */
-    void write(Object msg) {
+    public void write(Object msg) {
         if (msg instanceof ReferenceCounted) {
             LOG.debug("Retaining reference counted message");
             ((ReferenceCounted) msg).retain();
@@ -220,7 +224,7 @@ abstract class ProxyConnection<I extends HttpObject> extends
         doWrite(msg);
     }
 
-    void doWrite(Object msg) {
+    protected void doWrite(Object msg) {
         LOG.debug("Writing: {}", msg);
 
         try {
@@ -277,7 +281,7 @@ abstract class ProxyConnection<I extends HttpObject> extends
      * This method is called as soon as the underlying {@link Channel} becomes
      * disconnected.
      */
-    protected void disconnected() {
+    public void disconnected() {
         become(DISCONNECTED);
         LOG.debug("Disconnected");
     }

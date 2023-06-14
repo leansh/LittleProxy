@@ -28,6 +28,7 @@ import io.netty.handler.timeout.IdleStateHandler;
 import io.netty.handler.traffic.GlobalTrafficShapingHandler;
 import io.netty.util.ReferenceCounted;
 import io.netty.util.concurrent.Future;
+import lombok.Getter;
 import org.apache.commons.lang3.StringUtils;
 import org.littleshoot.proxy.ActivityTracker;
 import org.littleshoot.proxy.FlowContext;
@@ -83,6 +84,7 @@ import static org.littleshoot.proxy.impl.ConnectionState.NEGOTIATING_CONNECT;
  * .
  * </p>
  */
+@Getter
 public class ClientToProxyConnection extends ProxyConnection<HttpRequest> {
     private static final HttpResponseStatus CONNECTION_ESTABLISHED = new HttpResponseStatus(
             200, "Connection established");
@@ -158,14 +160,14 @@ public class ClientToProxyConnection extends ProxyConnection<HttpRequest> {
 
     private final ClientDetails clientDetails = new ClientDetails();
 
-    ClientToProxyConnection(
+    public ClientToProxyConnection(
             final DefaultHttpProxyServer proxyServer,
             SslEngineSource sslEngineSource,
             boolean authenticateClients,
             ChannelPipeline pipeline,
-            GlobalTrafficShapingHandler globalTrafficShapingHandler) {
+            GlobalTrafficShapingHandler globalTrafficShapingHandler
+        ) {
         super(AWAITING_INITIAL, proxyServer, false);
-
         initChannelPipeline(pipeline);
 
         if (sslEngineSource != null) {
@@ -310,13 +312,7 @@ public class ClientToProxyConnection extends ProxyConnection<HttpRequest> {
 
         if (newConnectionRequired) {
             try {
-                currentServerConnection = ProxyToServerConnection.create(
-                        proxyServer,
-                        this,
-                        serverHostAndPort,
-                        currentFilters,
-                        httpRequest,
-                        globalTrafficShapingHandler);
+                currentServerConnection = newProxyToServerConnection(httpRequest, serverHostAndPort);
                 if (currentServerConnection == null) {
                     LOG.debug("Unable to create server connection, probably no chained proxies available");
                     boolean keepAlive = writeBadGateway(httpRequest);
@@ -371,6 +367,17 @@ public class ClientToProxyConnection extends ProxyConnection<HttpRequest> {
         } else {
             return AWAITING_INITIAL;
         }
+    }
+
+    protected ProxyToServerConnection newProxyToServerConnection(HttpRequest httpRequest,
+        String serverHostAndPort) throws UnknownHostException {
+        return ProxyToServerConnection.create(
+            proxyServer,
+            this,
+            serverHostAndPort,
+            currentFilters,
+            httpRequest,
+            globalTrafficShapingHandler);
     }
 
     /**
@@ -573,7 +580,7 @@ public class ClientToProxyConnection extends ProxyConnection<HttpRequest> {
      * On disconnect of the client, disconnect all server connections.
      */
     @Override
-    protected void disconnected() {
+    public void disconnected() {
         super.disconnected();
         for (ProxyToServerConnection serverConnection : serverConnectionsByHostAndPort
                 .values()) {
